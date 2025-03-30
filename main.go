@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"time"
@@ -18,7 +18,7 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := ioutil.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
 		return
@@ -31,11 +31,18 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	timestamp := time.Now().Format("20060102_150405")
-	filename := fmt.Sprintf("webhook_payload_%s.txt", timestamp)
+	file, err := os.OpenFile("hooks.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		http.Error(w, "Failed to open file", http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
 
-	if err := ioutil.WriteFile(filename, body, 0644); err != nil {
-		http.Error(w, "Failed to write file", http.StatusInternalServerError)
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	entry := fmt.Sprintf("%s - %s\n", timestamp, string(body))
+
+	if _, err := file.WriteString(entry); err != nil {
+		http.Error(w, "Failed to write to file", http.StatusInternalServerError)
 		return
 	}
 
