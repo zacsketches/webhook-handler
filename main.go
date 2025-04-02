@@ -21,12 +21,14 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
 	// Handle preflight (OPTIONS) requests
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
+		fmt.Println("CORS preflight request handled successfully.")
 		return
 	}
 
 	// Only allow POST requests
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		fmt.Println("Rejected request: Invalid method", r.Method)
 		return
 	}
 
@@ -59,8 +61,11 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Send a JSON response after successfully storing the payload
+	response := map[string]string{"message": "Payload received and stored."}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Payload received and stored."))
+	json.NewEncoder(w).Encode(response)
 }
 
 func main() {
