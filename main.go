@@ -32,6 +32,13 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check Content-Type header
+	if r.Header.Get("Content-Type") != "application/json" {
+		http.Error(w, "Unsupported Media Type: Content-Type must be application/json", http.StatusUnsupportedMediaType)
+		fmt.Println("Rejected request: Invalid Content-Type", r.Header.Get("Content-Type"))
+		return
+	}
+
 	defer r.Body.Close() // Ensure body is closed
 
 	var payload Payload
