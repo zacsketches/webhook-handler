@@ -13,15 +13,15 @@ type Payload map[string]interface{}
 
 func webhookHandler(w http.ResponseWriter, r *http.Request) {
 	// Set permissive CORS headers
-	w.Header().Set("Access-Control-Allow-Origin", "*")   // Allow all origins
-	w.Header().Set("Access-Control-Allow-Methods", "*")  // Allow all methods
-	w.Header().Set("Access-Control-Allow-Headers", "*")  // Allow all headers
-	w.Header().Set("Access-Control-Expose-Headers", "*") // Expose all response headers
+	w.Header().Set("Access-Control-Allow-Origin", "*")              // Allow all origins
+	w.Header().Set("Access-Control-Allow-Methods", "OPTIONS, POST") // Limited methods
+	w.Header().Set("Access-Control-Allow-Headers", "*")             // Allow all headers
+	w.Header().Set("Access-Control-Expose-Headers", "*")            // Expose all response headers
 
 	// Handle preflight (OPTIONS) requests
 	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
-		fmt.Println("CORS preflight request handled successfully.")
+		w.WriteHeader(http.StatusNoContent)
+		fmt.Println("Handled preflight (OPTIONS) request")
 		return
 	}
 
