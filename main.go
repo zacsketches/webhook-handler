@@ -19,7 +19,33 @@ func init() {
 	log.SetHandler(cli.New(os.Stdout))
 }
 
-// writePayloadToFile handles the logic for marshalling the payload and writing it to a file.
+// corsMiddleware handles CORS headers and preflight requests.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set permissive CORS headers.
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "OPTIONS, POST")
+		w.Header().Set("Access-Control-Allow-Headers", "*")
+		w.Header().Set("Access-Control-Expose-Headers", "*")
+
+		// Handle preflight (OPTIONS) requests.
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			// Log the preflight request. Extract client IP for context.
+			clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err != nil {
+				clientIP = r.RemoteAddr
+			}
+			log.WithField("clientIP", clientIP).Info("Handled preflight (OPTIONS) request")
+			return
+		}
+
+		// Proceed to the next handler.
+		next.ServeHTTP(w, r)
+	})
+}
+
+// writePayloadToFile handles marshalling the payload and writing it to a file.
 func writePayloadToFile(payload Payload) error {
 	// Open the file to append logs.
 	file, err := os.OpenFile("../hooks.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -29,14 +55,14 @@ func writePayloadToFile(payload Payload) error {
 	}
 	defer file.Close()
 
-	// Marshal the payload to JSON for logging.
+	// Marshal the payload to JSON.
 	entry, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		log.WithError(err).Error("Failed to marshal JSON payload")
 		return err
 	}
 
-	// Write only the JSON payload to the file.
+	// Write the JSON payload to the file.
 	logEntry := fmt.Sprintf("%s\n", string(entry))
 	if _, err := file.WriteString(logEntry); err != nil {
 		log.WithError(err).Error("Failed to write log entry to file")
@@ -47,24 +73,10 @@ func writePayloadToFile(payload Payload) error {
 }
 
 func webhookHandler(w http.ResponseWriter, r *http.Request) {
-	// Extract the client IP address.
+	// Extract client IP for logging.
 	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		// If there's an error splitting, fallback to using the whole RemoteAddr.
 		clientIP = r.RemoteAddr
-	}
-
-	// Set permissive CORS headers.
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "OPTIONS, POST")
-	w.Header().Set("Access-Control-Allow-Headers", "*")
-	w.Header().Set("Access-Control-Expose-Headers", "*")
-
-	// Handle preflight (OPTIONS) requests.
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		log.WithField("clientIP", clientIP).Info("Handled preflight (OPTIONS) request")
-		return
 	}
 
 	// Only allow POST requests.
@@ -99,20 +111,20 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Write the payload to file using the helper function.
+	// Write the payload to file.
 	if err := writePayloadToFile(payload); err != nil {
 		http.Error(w, "Failed to write payload to file", http.StatusInternalServerError)
 		log.WithField("clientIP", clientIP).Error("Error writing payload to file")
 		return
 	}
 
-	// Log a successful payload receipt.
+	// Log the successful payload receipt.
 	log.WithFields(log.Fields{
 		"clientIP": clientIP,
 		"payload":  payload,
 	}).Info("Payload received and stored successfully")
 
-	// Send a JSON response after successfully storing the payload.
+	// Send a JSON response.
 	response := map[string]string{"message": "Payload received and stored."}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -125,10 +137,13 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	http.HandleFunc("/webhook", webhookHandler)
+	// Create a mux and wrap the webhookHandler with CORS middleware.
+	mux := http.NewServeMux()
+	mux.Handle("/webhook", corsMiddleware(http.HandlerFunc(webhookHandler)))
+
 	port := ":8080"
 	log.WithField("port", port).Info("Webhook server starting")
-	if err := http.ListenAndServe(port, nil); err != nil {
+	if err := http.ListenAndServe(port, mux); err != nil {
 		log.WithError(err).Fatal("Failed to start server")
 		os.Exit(1)
 	}
