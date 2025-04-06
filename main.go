@@ -158,18 +158,39 @@ func readingsHandler(w http.ResponseWriter, r *http.Request) {
 		clientIP = r.RemoteAddr
 	}
 
+	// Log that the /readings endpoint was hit
+	log.WithFields(log.Fields{
+		"clientIP": clientIP,
+		"method":   r.Method,
+		"endpoint": "/readings",
+	}).Info("Received request for /readings")
+
 	if r.Method != http.MethodGet {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		log.WithFields(log.Fields{
+			"clientIP": clientIP,
+			"method":   r.Method,
+			"endpoint": "/readings",
+		}).Warn("Request method not allowed")
 		return
 	}
 
 	readings, err := getReadings()
 	if err != nil {
 		http.Error(w, "Failed to retrieve readings", http.StatusInternalServerError)
-		log.WithField("clientIP", clientIP).WithError(err).Error("Error retrieving readings")
+		log.WithField("clientIP", clientIP).WithError(err).Error("Failed to retrieve readings from database")
 		return
 	}
 
+	// Log the successful retrieval of readings
+	log.WithFields(log.Fields{
+		"clientIP": clientIP,
+		"method":   r.Method,
+		"endpoint": "/readings",
+		"readings": len(readings),
+	}).Info("Successfully retrieved readings")
+
+	// Respond with the readings
 	response := map[string]interface{}{
 		"readings": readings,
 	}
