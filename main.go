@@ -3,9 +3,11 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"math"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/cli"
@@ -25,25 +27,63 @@ type WaterTest struct {
 var db *sql.DB
 
 func init() {
+	// Set up logging
 	log.SetHandler(cli.New(os.Stdout))
 
+	// Get the READINGS_DB environment variable
+	dbPath := os.Getenv("READINGS_DB")
+	if dbPath == "" {
+		log.Fatal("READINGS_DB environment variable is not set")
+	}
+
+	// Check if the given path is a valid Unix file path
+	// We use filepath.IsAbs to check if the path is absolute and os.Stat to check if it exists
+	if !filepath.IsAbs(dbPath) {
+		log.Fatal("The READINGS_DB environment variable must be a valid Unix file path")
+	}
+
+	// Check if the file exists at the given path
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		log.WithField("path", dbPath).Fatal("Database file does not exist")
+	}
+
+	// Open the SQLite database connection
 	var err error
-	db, err = sql.Open("sqlite3", "/mnt/readings/db/measurements.db")
+	db, err = sql.Open("sqlite3", dbPath)
 	if err != nil {
 		log.WithError(err).Fatal("Failed to connect to SQLite database")
 	}
 	log.Info("Successfully located database")
 
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS water_tests (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		testDate TEXT NOT NULL,
-		chlorine REAL NOT NULL,
-		ph REAL NOT NULL,
-		acidDemand INTEGER,
-		totalAlkalinity INTEGER
-	)`)
+	// Check if the water_tests table exists by running a simple query
+	var tableExists bool
+	err = db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='water_tests'`).Scan(&tableExists)
 	if err != nil {
-		log.WithError(err).Fatal("Failed to create table water_tests")
+		log.WithError(err).Fatal("Failed to check if water_tests table exists")
+	}
+
+	// If the table doesn't exist, create it and log the creation
+	if !tableExists {
+		_, err = db.Exec(`CREATE TABLE IF NOT EXISTS water_tests (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			testDate TEXT NOT NULL,
+			chlorine REAL NOT NULL,
+			ph REAL NOT NULL,
+			acidDemand INTEGER,
+			totalAlkalinity INTEGER
+		)`)
+		if err != nil {
+			log.WithError(err).Fatal("Failed to create table water_tests")
+		}
+		log.Info("water_tests table was created")
+	} else {
+		// If the table exists, count how many readings (rows) are in the table
+		var count int
+		err = db.QueryRow(`SELECT COUNT(*) FROM water_tests`).Scan(&count)
+		if err != nil {
+			log.WithError(err).Fatal("Failed to count readings in water_tests table")
+		}
+		log.WithField("readingsCount", count).Info("water_tests table already exists")
 	}
 }
 
@@ -72,9 +112,9 @@ func storePayload(payload Payload) error {
 	acidDemand, _ := payload["acidDemand"].(float64)           // Assert as float64
 	totalAlkalinity, _ := payload["totalAlkalinity"].(float64) // Assert as float64
 
-	// Explicitly convert float64 to int
-	acidDemandInt := int(acidDemand)
-	totalAlkalinityInt := int(totalAlkalinity)
+	// Round the acidDemand and totalAlkalinity to the nearest integer and convert to int
+	acidDemandInt := int(math.Round(acidDemand))
+	totalAlkalinityInt := int(math.Round(totalAlkalinity))
 
 	// Insert the data into the database
 	_, err := db.Exec(`
